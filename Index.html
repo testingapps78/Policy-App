@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Policy Records — Area 9219</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root{
+    --ink:#1C1C1C; --ink-soft:#5B5955;
+    --paper:#FAF9F6; --paper-raised:#FFFFFF;
+    --green:#1B4332; --green-deep:#0F2D22;
+    --gold:#A6792B; --gold-soft:#F3E9D6;
+    --rule:#DDD8CC; --rule-strong:#B9B2A0;
+    --error:#A8362A; --error-bg:#FBEAE7;
+    --ok:#3C7A57; --pending:#C97A2B; --pending-bg:#FCEEDD;
+    --radius:3px;
+    --serif:'Source Serif 4',Georgia,serif;
+    --sans:'Inter',-apple-system,sans-serif;
+    --mono:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;}
+  ::selection{background:var(--gold-soft);}
+
+  /* ===== LOGIN SCREEN ===== */
+  .login-screen{
+    min-height:100vh;display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(160deg, var(--green-deep) 0%, var(--green) 60%, #234D3B 100%);
+    padding:20px;
+  }
+  .login-card{
+    background:var(--paper-raised);
+    border-radius:8px;
+    max-width:380px;width:100%;
+    padding:36px 32px;
+    box-shadow:0 24px 60px rgba(0,0,0,0.35);
+  }
+  .login-logo{font-size:34px;text-align:center;margin-bottom:6px;}
+  .login-title{font-family:var(--serif);font-size:18px;font-weight:700;color:var(--green-deep);text-align:center;margin:0 0 2px;}
+  .login-sub{font-size:12px;color:var(--ink-soft);text-align:center;margin:0 0 26px;font-family:var(--mono);letter-spacing:0.3px;}
+  .login-field{margin-bottom:14px;}
+  .login-field label{display:block;font-size:12px;font-weight:600;margin-bottom:5px;}
+  .login-field input{
+    width:100%;border:1px solid var(--rule-strong);border-radius:var(--radius);
+    padding:11px 12px;font-size:15px;font-family:var(--mono);
+  }
+  .login-field input:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(27,67,50,0.1);}
+  .login-btn{
+    width:100%;background:var(--green);color:#fff;border:none;border-radius:var(--radius);
+    padding:12px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px;font-family:var(--sans);
+  }
+  .login-btn:hover{background:var(--green-deep);}
+  .login-btn:disabled{opacity:0.6;cursor:wait;}
+  .login-error{
+    background:var(--error-bg);color:var(--error);font-size:12.5px;padding:9px 12px;
+    border-radius:var(--radius);margin-bottom:14px;display:none;font-weight:500;
+  }
+  .login-error.show{display:block;}
+  .login-hint{font-size:11.5px;color:var(--ink-soft);text-align:center;margin-top:18px;line-height:1.6;}
+  .offline-pill{
+    display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;
+    padding:4px 10px;border-radius:12px;margin:0 auto 18px;width:fit-content;
+  }
+  .offline-pill.online{background:#E5EFE9;color:var(--ok);}
+  .offline-pill.offline{background:var(--pending-bg);color:#7A4A12;}
+  .offline-pill-wrap{display:flex;justify-content:center;}
+
+  /* ===== APP SHELL (shown after login) ===== */
+  .app-shell{display:none;}
+  .app-shell.active{display:block;}
+
+  .masthead{
+    background:var(--green-deep);color:#EFE9DC;padding:14px 24px;
+    display:flex;align-items:center;justify-content:space-between;
+    border-bottom:3px solid var(--gold);flex-wrap:wrap;gap:10px;
+  }
+  .masthead-left{display:flex;align-items:center;gap:12px;}
+  .masthead-title{font-family:var(--serif);font-weight:700;font-size:18px;}
+  .masthead-sub{font-family:var(--mono);font-size:10.5px;color:#B9C4BB;letter-spacing:0.4px;text-transform:uppercase;}
+  .masthead-right{display:flex;align-items:center;gap:12px;}
+  .user-chip{
+    font-family:var(--mono);font-size:12px;background:rgba(166,121,43,0.18);
+    border:1px solid var(--gold);padding:6px 12px;border-radius:20px;display:flex;align-items:center;gap:8px;
+  }
+  .role-tag{
+    font-size:9px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;
+    padding:2px 6px;border-radius:8px;background:var(--gold);color:#fff;
+  }
+  .logout-btn{
+    background:transparent;border:1px solid rgba(239,233,220,0.4);color:#EFE9DC;
+    padding:6px 12px;border-radius:16px;font-size:12px;cursor:pointer;font-family:var(--sans);
+  }
+  .logout-btn:hover{background:rgba(255,255,255,0.08);}
+  .conn-status{
+    font-family:var(--mono);font-size:11px;display:flex;align-items:center;gap:6px;
+  }
+  .conn-dot{width:7px;height:7px;border-radius:50%;}
+  .conn-dot.online{background:#5FBE89;}
+  .conn-dot.offline{background:#D49A4A;}
+  .conn-dot.syncing{background:#E8C468;animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+
+  .banner{border-bottom:1px solid var(--rule-strong);padding:10px 24px;font-size:12.5px;display:flex;align-items:center;justify-content:space-between;gap:14px;}
+  .banner.hidden{display:none;}
+  .banner.gold{background:var(--gold-soft);color:#5C4521;}
+  .banner.offline-warn{background:#FCEEDD;color:#7A4A12;}
+  .banner-btn{font-size:11.5px;font-weight:600;padding:4px 11px;border-radius:14px;border:1px solid currentColor;background:transparent;cursor:pointer;}
+
+  .layout{display:grid;grid-template-columns:360px 1fr;gap:0;min-height:calc(100vh - 56px);}
+  @media (max-width: 980px){.layout{grid-template-columns:1fr;}}
+
+  .entry-panel{background:var(--paper-raised);border-right:1px solid var(--rule);padding:20px;overflow-y:auto;}
+  .panel-heading{font-family:var(--serif);font-size:15px;font-weight:600;color:var(--green-deep);margin:0 0 4px;display:flex;align-items:center;justify-content:space-between;}
+  .panel-sub{font-size:11.5px;color:var(--ink-soft);margin:0 0 18px;}
+
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:12px;font-weight:600;margin-bottom:5px;}
+  .field .hint{font-size:10.5px;color:var(--ink-soft);font-weight:400;margin-left:5px;}
+  .field input[type=text], .field textarea, .field select{
+    width:100%;border:1px solid var(--rule-strong);border-radius:var(--radius);
+    padding:9px 11px;font-size:14px;font-family:var(--sans);background:#fff;color:var(--ink);
+  }
+  .field input:focus, .field textarea:focus, .field select:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(27,67,50,0.1);}
+  .field textarea{resize:vertical;min-height:50px;}
+  .field.error input{border-color:var(--error);background:var(--error-bg);}
+  .field .err-msg{font-size:11px;color:var(--error);margin-top:4px;display:none;font-weight:500;}
+  .field.error .err-msg{display:block;}
+  .field .preview{font-family:var(--mono);font-size:12px;color:var(--green);margin-top:4px;font-weight:600;min-height:14px;}
+
+  .toggle-row{display:flex;align-items:center;gap:10px;background:var(--pending-bg);border:1px solid #EBC896;border-radius:var(--radius);padding:9px 11px;margin-bottom:12px;}
+  .toggle-row label{font-size:12px;font-weight:600;color:#7A4A12;margin:0;flex:1;cursor:pointer;}
+  .switch{position:relative;width:36px;height:20px;flex-shrink:0;}
+  .switch input{opacity:0;width:0;height:0;}
+  .switch-track{position:absolute;cursor:pointer;inset:0;background:#C9C2B0;border-radius:20px;transition:.15s;}
+  .switch-track:before{content:"";position:absolute;width:14px;height:14px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s;}
+  .switch input:checked + .switch-track{background:var(--pending);}
+  .switch input:checked + .switch-track:before{transform:translateX(16px);}
+
+  .form-actions{display:flex;gap:10px;margin-top:18px;}
+  .btn{font-family:var(--sans);font-weight:600;font-size:13px;padding:10px 16px;border-radius:var(--radius);border:1px solid transparent;cursor:pointer;}
+  .btn:active{transform:translateY(1px);}
+  .btn-primary{background:var(--green);color:#fff;flex:1;}
+  .btn-primary:hover{background:var(--green-deep);}
+  .btn-ghost{background:transparent;border-color:var(--rule-strong);color:var(--ink-soft);}
+  .btn-ghost:hover{border-color:var(--ink-soft);color:var(--ink);}
+  .btn-gold{background:var(--gold);color:#fff;}
+  .btn:disabled{opacity:0.45;cursor:not-allowed;}
+
+  .records-side{display:flex;flex-direction:column;}
+  .toolbar{background:var(--paper-raised);border-bottom:1px solid var(--rule);padding:12px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .search-box{position:relative;flex:1;min-width:200px;max-width:340px;}
+  .search-box input{width:100%;padding:8px 12px 8px 30px;border:1px solid var(--rule-strong);border-radius:20px;font-size:13px;
+    background:#fff url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" stroke="%235B5955" stroke-width="2"><circle cx="6" cy="6" r="5"/><line x1="10" y1="10" x2="13" y2="13"/></svg>') 10px center no-repeat;}
+  .search-box input:focus{outline:none;border-color:var(--green);}
+  select.filter-select{border:1px solid var(--rule-strong);border-radius:20px;padding:8px 12px;font-size:12.5px;background:#fff;}
+  .toolbar-spacer{flex:1;}
+  .record-count{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);}
+
+  .table-wrap{flex:1;overflow:auto;padding:0 20px 20px;}
+  table{width:100%;border-collapse:collapse;background:var(--paper-raised);font-size:12.5px;}
+  thead th{position:sticky;top:0;background:var(--green-deep);color:#EFE9DC;text-align:left;padding:10px 11px;font-weight:600;font-size:11px;letter-spacing:0.3px;text-transform:uppercase;white-space:nowrap;z-index:2;}
+  tbody td{padding:9px 11px;border-bottom:1px solid var(--rule);vertical-align:top;}
+  tbody tr:hover{background:#FBFAF7;}
+  tbody tr:nth-child(even){background:#FCFBF9;}
+  tbody tr.fulfilled-row{opacity:0.55;}
+  tbody tr.pending-sync{background:#FFFBEF !important;}
+  .col-num{font-family:var(--mono);color:var(--ink-soft);width:34px;}
+  .col-mono{font-family:var(--mono);white-space:nowrap;}
+  .col-policy{font-family:var(--mono);font-weight:600;color:var(--green-deep);white-space:nowrap;}
+  .col-amount{font-family:var(--mono);text-align:right;font-weight:600;white-space:nowrap;}
+  .col-owner{font-size:11px;color:var(--ink-soft);white-space:nowrap;}
+  .req-badge{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:11px;margin-bottom:3px;}
+  .req-badge.pending{background:var(--pending-bg);color:#7A4A12;}
+  .req-badge.fulfilled{background:#E5EFE9;color:var(--ok);text-decoration:line-through;}
+  .sync-badge{font-size:9.5px;font-weight:700;color:#B07A1E;letter-spacing:0.3px;}
+  .row-actions{display:flex;gap:5px;white-space:nowrap;}
+  .icon-btn{border:none;background:transparent;cursor:pointer;color:var(--ink-soft);padding:3px 6px;border-radius:4px;font-size:11.5px;font-weight:600;}
+  .icon-btn:hover{background:var(--gold-soft);color:var(--gold);}
+  .icon-btn.danger:hover{background:var(--error-bg);color:var(--error);}
+  .icon-btn.ok:hover{background:#E5EFE9;color:var(--ok);}
+
+  .empty-state{text-align:center;padding:50px 20px;color:var(--ink-soft);}
+  .empty-state .glyph{font-size:30px;margin-bottom:8px;opacity:0.5;}
+
+  .footer-bar{background:var(--paper-raised);border-top:1px solid var(--rule);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
+  .total-amount{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--green-deep);}
+  .footer-actions{display:flex;gap:8px;flex-wrap:wrap;}
+  .signature-strip{text-align:center;padding:8px 0 14px;font-family:var(--mono);font-size:10.5px;color:var(--ink-soft);opacity:0.5;line-height:1.6;}
+
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--green-deep);color:#EFE9DC;padding:10px 18px;border-radius:6px;font-size:12.5px;font-weight:500;box-shadow:0 8px 24px rgba(0,0,0,0.25);opacity:0;pointer-events:none;transition:opacity .25s, transform .25s;z-index:100;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  .toast.error{background:var(--error);}
+</style>
+</head>
+<body>
+
+<!-- ===================== LOGIN SCREEN ===================== -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">📋</div>
+    <div class="login-title">State Life Insurance Corporation</div>
+    <div class="login-sub">AREA 9219 · JHANG ZONE</div>
+    <div class="offline-pill-wrap">
+      <div class="offline-pill online" id="loginConnPill">🟢 Online</div>
+    </div>
+    <div class="login-error" id="loginError"></div>
+    <form id="loginForm">
+      <div class="login-field">
+        <label>SSM Code / Username</label>
+        <input type="text" id="loginUsername" placeholder="e.g. 292372, or manager / clerk" autocomplete="username">
+      </div>
+      <div class="login-field">
+        <label>Password</label>
+        <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button type="submit" class="login-btn" id="loginBtn">Log In</button>
+    </form>
+    <div class="login-hint">Use your SSM code as username, or "manager" / "clerk".<br>Contact the office clerk if you've forgotten your password.</div>
+  </div>
+</div>
+
+<!-- ===================== APP SHELL ===================== -->
+<div class="app-shell" id="appShell">
+
+  <div class="masthead">
+    <div class="masthead-left">
+      <span style="font-size:20px;">📋</span>
+      <div>
+        <div class="masthead-title">Policy Register — Area 9219</div>
+        <div class="masthead-sub">Jhang Zone</div>
+      </div>
+    </div>
+    <div class="masthead-right">
+      <div class="conn-status" id="connStatus"><span class="conn-dot online" id="connDot"></span><span id="connText">Online</span></div>
+      <div class="user-chip">
+        <span id="userNameChip">—</span>
+        <span class="role-tag" id="userRoleChip">—</span>
+      </div>
+      <button class="logout-btn" onclick="logout()">Log Out</button>
+    </div>
+  </div>
+
+  <div class="banner offline-warn hidden" id="offlineBanner">
+    <span>📡 <strong>You're offline.</strong> Keep entering records as normal — everything will sync automatically once internet is back.</span>
+  </div>
+
+  <div class="banner gold hidden" id="pendingSyncBanner">
+    <span>⏳ <strong id="pendingSyncText">0 records waiting to sync.</strong></span>
+    <button class="banner-btn" onclick="trySync()">Sync Now</button>
+  </div>
+
+  <div class="layout">
+    <div class="entry-panel">
+      <div class="panel-heading"><span id="formHeading">New Record</span></div>
+      <p class="panel-sub">Fill in the fields below. Formats are checked as you type.</p>
+
+      <form id="entryForm" autocomplete="off">
+        <div class="field" id="field_owner" style="display:none;">
+          <label>Record Owner (SSM)</label>
+          <select id="f_owner"></select>
+        </div>
+
+        <div class="field"><label>Name</label><input type="text" id="f_name" placeholder="Full name"></div>
+        <div class="field"><label>Address</label><input type="text" id="f_address" placeholder="Chak No, Tehsil..."></div>
+
+        <div class="field" id="field_policy">
+          <label>Policy No <span class="hint">type 6 digits (5 + check digit)</span></label>
+          <input type="text" id="f_policy" maxlength="6" placeholder="e.g. 577182">
+          <div class="preview" id="preview_policy"></div>
+          <div class="err-msg" id="err_policy">Enter exactly 6 digits.</div>
+        </div>
+
+        <div class="field" id="field_date">
+          <label>Date <span class="hint">type 6 digits: DDMMYY</span></label>
+          <input type="text" id="f_date" maxlength="6" placeholder="e.g. 160626">
+          <div class="preview" id="preview_date"></div>
+          <div class="err-msg" id="err_date">Enter exactly 6 digits as DDMMYY.</div>
+        </div>
+
+        <div class="field" id="field_phone">
+          <label>Phone No <span class="hint">type 10 digits, no leading 0</span></label>
+          <input type="text" id="f_phone" maxlength="10" placeholder="e.g. 3221234567">
+          <div class="preview" id="preview_phone"></div>
+          <div class="err-msg" id="err_phone">Enter exactly 10 digits (without the leading 0).</div>
+        </div>
+
+        <div class="field" id="field_amount">
+          <label>Amount</label>
+          <input type="text" id="f_amount" placeholder="e.g. 50295">
+          <div class="preview" id="preview_amount"></div>
+          <div class="err-msg" id="err_amount">Enter a valid number.</div>
+        </div>
+
+        <div class="toggle-row">
+          <label for="f_hasRequirement">Has pending requirement?</label>
+          <div class="switch"><input type="checkbox" id="f_hasRequirement" onchange="toggleRequirementField()"><span class="switch-track"></span></div>
+        </div>
+        <div class="field" id="field_requirements" style="display:none;">
+          <label>Requirements / Additional Details</label>
+          <textarea id="f_requirements" placeholder="e.g. Call for illustration / CNIC copy missing..."></textarea>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" id="submitBtn" onclick="submitRecord()">Add Record</button>
+          <button type="button" class="btn btn-ghost" id="cancelEditBtn" onclick="cancelEdit()" style="display:none;">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="records-side">
+      <div class="toolbar">
+        <div class="search-box"><input type="text" id="searchBox" placeholder="Search name, policy no, phone..." oninput="renderTable()"></div>
+        <select class="filter-select" id="monthFilter" onchange="renderTable()">
+          <option value="">All months</option>
+          <option value="1">January</option><option value="2">February</option><option value="3">March</option>
+          <option value="4">April</option><option value="5">May</option><option value="6">June</option>
+          <option value="7">July</option><option value="8">August</option><option value="9">September</option>
+          <option value="10">October</option><option value="11">November</option><option value="12">December</option>
+        </select>
+        <select class="filter-select" id="statusFilter" onchange="renderTable()">
+          <option value="">All records</option>
+          <option value="pending">Pending requirement</option>
+          <option value="fulfilled">Fulfilled requirement</option>
+          <option value="none">No requirement</option>
+        </select>
+        <select class="filter-select" id="ownerFilter" onchange="renderTable()" style="display:none;">
+          <option value="">All SSMs</option>
+        </select>
+        <div class="toolbar-spacer"></div>
+        <div class="record-count" id="recordCount">0 records</div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="recordsTable">
+          <thead><tr id="tableHeadRow"></tr></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+        <div class="empty-state" id="emptyState">
+          <div class="glyph">🗒️</div>
+          <p><strong>No records yet</strong></p>
+          <p>Add your first record using the form on the left.</p>
+        </div>
+      </div>
+
+      <div class="footer-bar">
+        <div class="total-amount" id="totalAmount">Total: PKR 0.00</div>
+        <div class="footer-actions">
+          <button class="btn btn-ghost" onclick="exportPDF()">🖨️ Export PDF (A4)</button>
+        </div>
+      </div>
+      <div class="signature-strip" id="signatureStrip"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ===================== SUPABASE CONFIG =====================
+// These two values are filled in once Shah provides them.
+const SUPABASE_URL = 'https://umoazkqjboywukhdxnmv.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_b8crr68rwf6jjQmvTyCtzA_ln4rSv5b';
+
+let supabase = null;
+let supabaseReady = false;
+if(SUPABASE_URL.indexOf('YOUR_SUPABASE') === -1){
+  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  supabaseReady = true;
+}
+
+// ===================== STATE =====================
+let currentUser = null; // {id, role, full_name, ssm_code}
+let records = [];
+let editingId = null;
+let staffList = []; // for manager/clerk owner dropdown
+let isOnline = navigator.onLine;
+let pendingQueue = []; // operations queued while offline: {type, payload}
+
+const QUEUE_KEY = 'policyapp_v3_queue';
+const SESSION_KEY = 'policyapp_v3_session';
+const CACHE_KEY = 'policyapp_v3_cache';
+
+// ===================== VALIDATION / FORMATTING (same rules as before) =====================
+function formatDateFromDigits(d){
+  if(!/^\d{6}$/.test(d)) return null;
+  const dd = parseInt(d.slice(0,2),10), mm = parseInt(d.slice(2,4),10), yy = parseInt(d.slice(4,6),10);
+  if(mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  const yyyy = 2000 + yy;
+  const dt = new Date(yyyy, mm-1, dd);
+  if(dt.getMonth() !== mm-1 || dt.getDate() !== dd) return null;
+  const pad = n => String(n).padStart(2,'0');
+  return {display:`${pad(dd)}-${pad(mm)}-${yyyy}`, month:mm};
+}
+function formatPhoneFromDigits(d){ return /^\d{10}$/.test(d) ? '0'+d.slice(0,3)+'-'+d.slice(3) : null; }
+function formatPolicyFromDigits(d){ return /^\d{6}$/.test(d) ? '6193'+d.slice(0,5)+'-'+d.slice(5) : null; }
+function formatAmount(v){ const n = parseFloat(v); return isNaN(n) ? null : 'PKR ' + n.toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function nowTimestamp(){
+  const d = new Date(); const pad = n => String(n).padStart(2,'0');
+  return `${pad(d.getDate())}-${pad(d.getMonth()+1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+function escapeHtml(s){ return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
+
+function wireField(id, formatter, previewId){
+  document.getElementById(id).addEventListener('input', () => {
+    const input = document.getElementById(id);
+    const val = input.value.trim();
+    const wrapper = input.closest('.field');
+    const preview = document.getElementById(previewId);
+    if(val === ''){ wrapper.classList.remove('error'); preview.textContent=''; return; }
+    const result = formatter(val);
+    if(result === null){ wrapper.classList.add('error'); preview.textContent=''; }
+    else { wrapper.classList.remove('error'); preview.textContent = '→ ' + (typeof result === 'object' ? result.display : result); }
+  });
+}
+wireField('f_date', formatDateFromDigits, 'preview_date');
+wireField('f_phone', formatPhoneFromDigits, 'preview_phone');
+wireField('f_policy', formatPolicyFromDigits, 'preview_policy');
+wireField('f_amount', formatAmount, 'preview_amount');
+['f_date','f_phone','f_policy'].forEach(id => document.getElementById(id).addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g,''); }));
+function toggleRequirementField(){ document.getElementById('field_requirements').style.display = document.getElementById('f_hasRequirement').checked ? 'block' : 'none'; }
+
+// ===================== SAFE LOCAL CACHE (works once hosted; see notes) =====================
+const safeStorage = (function(){
+  let available = false;
+  try{ localStorage.setItem('__t__','1'); localStorage.removeItem('__t__'); available = true; }catch(e){}
+  const mem = {};
+  return {
+    isPersistent: available,
+    get(k){ try{ return available ? localStorage.getItem(k) : (mem[k]??null); }catch(e){ return mem[k]??null; } },
+    set(k,v){ try{ if(available) localStorage.setItem(k,v); else mem[k]=v; }catch(e){ mem[k]=v; } },
+    remove(k){ try{ if(available) localStorage.removeItem(k); else delete mem[k]; }catch(e){ delete mem[k]; } }
+  };
+})();
+
+// ===================== LOGIN =====================
+document.getElementById('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.classList.remove('show');
+
+  if(!username || !password){ errEl.textContent = 'Enter both username and password.'; errEl.classList.add('show'); return; }
+
+  const loginBtn = document.getElementById('loginBtn');
+  loginBtn.disabled = true; loginBtn.textContent = 'Logging in...';
+
+  const email = /^\d+$/.test(username) ? `${username}@area9219.local` : `${username.toLowerCase()}@area9219.local`;
+
+  try{
+    if(!isOnline){
+      // Offline login: check if we have a cached session for this exact username
+      const cachedSession = safeStorage.get(SESSION_KEY);
+      if(cachedSession){
+        const sess = JSON.parse(cachedSession);
+        if(sess.email === email){
+          currentUser = sess.user;
+          enterApp(true);
+          loginBtn.disabled = false; loginBtn.textContent = 'Log In';
+          return;
+        }
+      }
+      errEl.textContent = "You're offline and there's no cached session for this account on this device. Connect to internet once to log in the first time.";
+      errEl.classList.add('show');
+      loginBtn.disabled = false; loginBtn.textContent = 'Log In';
+      return;
+    }
+
+    if(!supabaseReady){
+      errEl.textContent = 'System not yet connected to the database. Contact the office clerk.';
+      errEl.classList.add('show');
+      loginBtn.disabled = false; loginBtn.textContent = 'Log In';
+      return;
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if(error){
+      errEl.textContent = 'Incorrect username or password.';
+      errEl.classList.add('show');
+      loginBtn.disabled = false; loginBtn.textContent = 'Log In';
+      return;
+    }
+
+    const { data: staffRow, error: staffErr } = await supabase.from('staff').select('*').eq('id', data.user.id).single();
+    if(staffErr || !staffRow){
+      errEl.textContent = 'Your account exists but is not yet set up with a role. Contact the office clerk.';
+      errEl.classList.add('show');
+      loginBtn.disabled = false; loginBtn.textContent = 'Log In';
+      return;
+    }
+
+    currentUser = staffRow;
+    safeStorage.set(SESSION_KEY, JSON.stringify({email, user: staffRow}));
+    enterApp(false);
+  }catch(err){
+    errEl.textContent = 'Something went wrong: ' + err.message;
+    errEl.classList.add('show');
+  }
+  loginBtn.disabled = false; loginBtn.textContent = 'Log In';
+});
+
+function logout(){
+  if(supabaseReady) supabase.auth.signOut();
+  safeStorage.remove(SESSION_KEY);
+  currentUser = null;
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('appShell').classList.remove('active');
+  document.getElementById('loginUsername').value = '';
+  document.getElementById('loginPassword').value = '';
+}
+
+async function enterApp(isOfflineLogin){
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appShell').classList.add('active');
+  document.getElementById('userNameChip').textContent = currentUser.full_name;
+  document.getElementById('userRoleChip').textContent = currentUser.role;
+
+  const isPrivileged = currentUser.role === 'manager' || currentUser.role === 'clerk';
+  document.getElementById('field_owner').style.display = isPrivileged ? 'block' : 'none';
+  document.getElementById('ownerFilter').style.display = isPrivileged ? 'inline-block' : 'none';
+
+  renderSignatureStrip();
+  loadQueueFromCache();
+
+  if(isPrivileged && isOnline && supabaseReady){
+    await loadStaffList();
+  }
+
+  await loadRecords();
+  renderTable();
+  updateConnUI();
+}
+
+// ===================== STAFF LIST (for manager/clerk owner dropdown + filter) =====================
+async function loadStaffList(){
+  try{
+    const { data, error } = await supabase.from('staff').select('*').eq('role','ssm').order('full_name');
+    if(!error && data){
+      staffList = data;
+      const ownerSelect = document.getElementById('f_owner');
+      ownerSelect.innerHTML = staffList.map(s => `<option value="${s.id}">${escapeHtml(s.full_name)} (${s.ssm_code})</option>`).join('');
+      const ownerFilter = document.getElementById('ownerFilter');
+      ownerFilter.innerHTML = '<option value="">All SSMs</option>' + staffList.map(s => `<option value="${s.id}">${escapeHtml(s.full_name)}</option>`).join('');
+    }
+  }catch(e){ console.warn('staff list load failed', e); }
+}
+function ownerNameById(id){
+  const s = staffList.find(x => x.id === id);
+  return s ? s.full_name : (id === currentUser.id ? currentUser.full_name : 'Unknown');
+}
+
+// ===================== DATA LOAD (online: from Supabase; offline: from cache) =====================
+async function loadRecords(){
+  if(isOnline && supabaseReady){
+    try{
+      let query = supabase.from('policy_records').select('*').order('serial', {ascending:true});
+      const { data, error } = await query;
+      if(error) throw error;
+      records = data || [];
+      safeStorage.set(CACHE_KEY + '_' + currentUser.id, JSON.stringify(records));
+    }catch(e){
+      console.warn('Could not load from server, using cache', e);
+      loadRecordsFromCache();
+    }
+  } else {
+    loadRecordsFromCache();
+  }
+}
+function loadRecordsFromCache(){
+  const cached = safeStorage.get(CACHE_KEY + '_' + currentUser.id);
+  records = cached ? JSON.parse(cached) : [];
+}
+function saveRecordsToCache(){
+  safeStorage.set(CACHE_KEY + '_' + currentUser.id, JSON.stringify(records));
+}
+
+// ===================== OFFLINE QUEUE =====================
+function loadQueueFromCache(){
+  const cached = safeStorage.get(QUEUE_KEY + '_' + currentUser.id);
+  pendingQueue = cached ? JSON.parse(cached) : [];
+  updatePendingSyncBanner();
+}
+function saveQueueToCache(){
+  safeStorage.set(QUEUE_KEY + '_' + currentUser.id, JSON.stringify(pendingQueue));
+  updatePendingSyncBanner();
+}
+function queueOperation(type, payload){
+  pendingQueue.push({type, payload, queuedAt: Date.now()});
+  saveQueueToCache();
+}
+function updatePendingSyncBanner(){
+  const banner = document.getElementById('pendingSyncBanner');
+  if(pendingQueue.length > 0){
+    banner.classList.remove('hidden');
+    document.getElementById('pendingSyncText').textContent = `${pendingQueue.length} record change${pendingQueue.length===1?'':'s'} waiting to sync.`;
+  } else {
+    banner.classList.add('hidden');
+  }
+}
+
+async function trySync(){
+  if(!isOnline || !supabaseReady || pendingQueue.length === 0) return;
+  showToast('Syncing...');
+  const remaining = [];
+  for(const op of pendingQueue){
+    try{
+      if(op.type === 'insert'){
+        const { error } = await supabase.from('policy_records').insert(op.payload);
+        if(error) throw error;
+      } else if(op.type === 'update'){
+        const { error } = await supabase.from('policy_records').update(op.payload.fields).eq('id', op.payload.id);
+        if(error) throw error;
+      } else if(op.type === 'delete'){
+        const { error } = await supabase.from('policy_records').delete().eq('id', op.payload.id);
+        if(error) throw error;
+      }
+    }catch(e){
+      console.warn('sync op failed, will retry later', op, e);
+      remaining.push(op);
+    }
+  }
+  pendingQueue = remaining;
+  saveQueueToCache();
+  if(remaining.length === 0){
+    showToast('All changes synced.');
+    await loadRecords();
+    renderTable();
+  } else {
+    showToast(`${remaining.length} change(s) still pending — will retry.`, true);
+  }
+}
+
+// ===================== CONNECTIVITY HANDLING =====================
+function updateConnUI(){
+  const dot = document.getElementById('connDot');
+  const text = document.getElementById('connText');
+  const offlineBanner = document.getElementById('offlineBanner');
+  if(isOnline){
+    dot.className = 'conn-dot online'; text.textContent = 'Online';
+    offlineBanner.classList.add('hidden');
+  } else {
+    dot.className = 'conn-dot offline'; text.textContent = 'Offline';
+    offlineBanner.classList.remove('hidden');
+  }
+  const loginPill = document.getElementById('loginConnPill');
+  if(loginPill){
+    loginPill.className = 'offline-pill ' + (isOnline ? 'online' : 'offline');
+    loginPill.textContent = isOnline ? '🟢 Online' : '🔴 Offline — use cached login';
+  }
+}
+window.addEventListener('online', () => { isOnline = true; updateConnUI(); trySync(); });
+window.addEventListener('offline', () => { isOnline = false; updateConnUI(); });
+
+// ===================== RECORD CRUD =====================
+function nextSerial(){ return records.length === 0 ? 1 : Math.max(...records.map(r => r.serial || 0)) + 1; }
+
+function validateForm(){
+  const date = document.getElementById('f_date').value.trim();
+  const phone = document.getElementById('f_phone').value.trim();
+  const policy = document.getElementById('f_policy').value.trim();
+  const amount = document.getElementById('f_amount').value.trim();
+  const name = document.getElementById('f_name').value.trim();
+  let ok = true;
+  if(name === ''){ ok = false; document.getElementById('f_name').focus(); }
+  if(date && formatDateFromDigits(date) === null){ ok = false; document.getElementById('field_date').classList.add('error'); }
+  if(phone && formatPhoneFromDigits(phone) === null){ ok = false; document.getElementById('field_phone').classList.add('error'); }
+  if(policy && formatPolicyFromDigits(policy) === null){ ok = false; document.getElementById('field_policy').classList.add('error'); }
+  if(amount && formatAmount(amount) === null){ ok = false; document.getElementById('field_amount').classList.add('error'); }
+  return ok;
+}
+
+async function submitRecord(){
+  if(!validateForm()){ showToast('Please fix the highlighted fields.', true); return; }
+
+  const dateDigits = document.getElementById('f_date').value.trim();
+  const phoneDigits = document.getElementById('f_phone').value.trim();
+  const policyDigits = document.getElementById('f_policy').value.trim();
+  const amountRaw = document.getElementById('f_amount').value.trim();
+  const dateObj = dateDigits ? formatDateFromDigits(dateDigits) : null;
+  const hasRequirement = document.getElementById('f_hasRequirement').checked;
+  const requirementsText = document.getElementById('f_requirements').value.trim();
+
+  const isPrivileged = currentUser.role === 'manager' || currentUser.role === 'clerk';
+  const ownerId = isPrivileged ? (document.getElementById('f_owner').value || currentUser.id) : currentUser.id;
+
+  const existing = editingId ? records.find(r => r.id === editingId) : null;
+
+  const fields = {
+    owner_id: ownerId,
+    serial: existing ? existing.serial : nextSerial(),
+    name: document.getElementById('f_name').value.trim(),
+    address: document.getElementById('f_address').value.trim(),
+    policy_display: policyDigits ? formatPolicyFromDigits(policyDigits) : '',
+    phone_display: phoneDigits ? formatPhoneFromDigits(phoneDigits) : '',
+    date_display: dateObj ? dateObj.display : '',
+    date_month: dateObj ? dateObj.month : null,
+    amount_raw: amountRaw,
+    amount_value: amountRaw ? parseFloat(amountRaw) : 0,
+    requirement_status: hasRequirement ? 'pending' : (existing && existing.requirement_status === 'fulfilled' ? 'fulfilled' : 'none'),
+    requirements: requirementsText,
+    last_edited_by: currentUser.id,
+  };
+
+  if(editingId){
+    const idx = records.findIndex(r => r.id === editingId);
+    records[idx] = Object.assign({}, records[idx], fields, {_pendingSync:true});
+    if(isOnline && supabaseReady){
+      const { error } = await supabase.from('policy_records').update(fields).eq('id', editingId);
+      if(error){ queueOperation('update', {id: editingId, fields}); }
+      else { records[idx]._pendingSync = false; }
+    } else {
+      queueOperation('update', {id: editingId, fields});
+    }
+    showToast('Record updated.');
+  } else {
+    const id = 'tmp-' + Date.now() + Math.random().toString(36).slice(2,7);
+    const newRec = Object.assign({id}, fields, {_pendingSync:true});
+    records.push(newRec);
+    if(isOnline && supabaseReady){
+      const { data, error } = await supabase.from('policy_records').insert(fields).select().single();
+      if(error){ queueOperation('insert', fields); }
+      else {
+        const idx = records.findIndex(r => r.id === id);
+        records[idx] = data;
+      }
+    } else {
+      queueOperation('insert', fields);
+    }
+    showToast('Record added.');
+  }
+
+  saveRecordsToCache();
+  resetForm();
+  renderTable();
+}
+
+function resetForm(){
+  editingId = null;
+  document.getElementById('entryForm').reset();
+  document.querySelectorAll('.field').forEach(f => f.classList.remove('error'));
+  document.querySelectorAll('.preview').forEach(p => p.textContent = '');
+  document.getElementById('field_requirements').style.display = 'none';
+  document.getElementById('formHeading').textContent = 'New Record';
+  document.getElementById('submitBtn').textContent = 'Add Record';
+  document.getElementById('cancelEditBtn').style.display = 'none';
+}
+function cancelEdit(){ resetForm(); }
+
+function editRecord(id){
+  const r = records.find(x => x.id === id);
+  if(!r) return;
+  const canEdit = currentUser.role !== 'ssm' || r.owner_id === currentUser.id;
+  if(!canEdit){ showToast("You can only edit your own records.", true); return; }
+  editingId = id;
+  document.getElementById('f_name').value = r.name || '';
+  document.getElementById('f_address').value = r.address || '';
+  document.getElementById('f_date').value = '';
+  document.getElementById('f_phone').value = '';
+  document.getElementById('f_amount').value = r.amount_raw || '';
+  document.getElementById('f_policy').value = '';
+  document.getElementById('f_requirements').value = r.requirements || '';
+  document.getElementById('f_hasRequirement').checked = r.requirement_status === 'pending';
+  toggleRequirementField();
+  if(currentUser.role !== 'ssm'){ document.getElementById('f_owner').value = r.owner_id; }
+  document.getElementById('formHeading').textContent = 'Edit Record #' + r.serial;
+  document.getElementById('submitBtn').textContent = 'Save Changes';
+  document.getElementById('cancelEditBtn').style.display = 'inline-block';
+  window.scrollTo({top:0, behavior:'smooth'});
+  showToast('Note: date/phone/policy fields are cleared for re-entry — type the digits again to update them, or leave blank to keep existing values shown in the table.');
+}
+
+async function deleteRecord(id){
+  const r = records.find(x => x.id === id);
+  if(!r) return;
+  const canDelete = currentUser.role !== 'ssm' || r.owner_id === currentUser.id;
+  if(!canDelete){ showToast("You can only delete your own records.", true); return; }
+  if(!confirm('Delete this record? This cannot be undone.')) return;
+
+  records = records.filter(x => x.id !== id);
+  saveRecordsToCache();
+  renderTable();
+
+  if(isOnline && supabaseReady && !String(id).startsWith('tmp-')){
+    const { error } = await supabase.from('policy_records').delete().eq('id', id);
+    if(error) queueOperation('delete', {id});
+  } else if(!String(id).startsWith('tmp-')){
+    queueOperation('delete', {id});
+  }
+  showToast('Record deleted.');
+}
+
+async function markFulfilled(id){ await updateRequirementStatus(id, 'fulfilled'); }
+async function markPendingAgain(id){ await updateRequirementStatus(id, 'pending'); }
+async function updateRequirementStatus(id, status){
+  const r = records.find(x => x.id === id);
+  if(!r) return;
+  r.requirement_status = status;
+  saveRecordsToCache();
+  renderTable();
+  const fields = {requirement_status: status, last_edited_by: currentUser.id};
+  if(isOnline && supabaseReady){
+    const { error } = await supabase.from('policy_records').update(fields).eq('id', id);
+    if(error) queueOperation('update', {id, fields});
+  } else {
+    queueOperation('update', {id, fields});
+  }
+  showToast(status === 'fulfilled' ? 'Marked as fulfilled.' : 'Reopened as pending.');
+}
+
+// ===================== TABLE RENDER =====================
+const FIELD_ORDER = ['name','address','policy','date','phone','amount','requirements'];
+const LABELS = {name:'Name', address:'Address', policy:'Policy No', date:'Date', phone:'Phone No', amount:'Amount', requirements:'Requirements'};
+
+function cellForField(r, key){
+  switch(key){
+    case 'name': return escapeHtml(r.name);
+    case 'address': return escapeHtml(r.address);
+    case 'date': return `<span class="col-mono">${r.date_display || '—'}</span>`;
+    case 'phone': return `<span class="col-mono">${r.phone_display || '—'}</span>`;
+    case 'amount': return r.amount_raw ? `<span class="col-amount">${formatAmount(r.amount_raw)}</span>` : '—';
+    case 'policy': return `<span class="col-policy">${r.policy_display || '—'}</span>`;
+    case 'requirements':
+      if(r.requirement_status === 'pending') return `<span class="req-badge pending">⏳ Pending</span><br>${escapeHtml(r.requirements)||''}`;
+      if(r.requirement_status === 'fulfilled') return `<span class="req-badge fulfilled">✓ Fulfilled</span>`;
+      return '—';
+    default: return '—';
+  }
+}
+
+function renderTable(){
+  const tbody = document.getElementById('tableBody');
+  const headRow = document.getElementById('tableHeadRow');
+  const search = document.getElementById('searchBox').value.trim().toLowerCase();
+  const month = document.getElementById('monthFilter').value;
+  const status = document.getElementById('statusFilter').value;
+  const ownerFilterVal = document.getElementById('ownerFilter').value;
+  const isPrivileged = currentUser.role !== 'ssm';
+
+  let cols = ['#', ...FIELD_ORDER.map(k => LABELS[k])];
+  if(isPrivileged) cols.push('SSM');
+  headRow.innerHTML = cols.map(c => `<th>${c}</th>`).join('') + '<th></th>';
+
+  let filtered = records.filter(r => {
+    if(month && String(r.date_month) !== month) return false;
+    if(status && r.requirement_status !== status) return false;
+    if(isPrivileged && ownerFilterVal && r.owner_id !== ownerFilterVal) return false;
+    if(search){
+      const hay = `${r.name} ${r.policy_display} ${r.phone_display} ${r.address}`.toLowerCase();
+      if(!hay.includes(search)) return false;
+    }
+    return true;
+  });
+  filtered.sort((a,b) => a.serial - b.serial);
+
+  tbody.innerHTML = '';
+  document.getElementById('emptyState').style.display = filtered.length ? 'none' : 'block';
+  document.getElementById('recordsTable').style.display = filtered.length ? 'table' : 'none';
+
+  filtered.forEach(r => {
+    const tr = document.createElement('tr');
+    if(r.requirement_status === 'fulfilled') tr.classList.add('fulfilled-row');
+    if(r._pendingSync) tr.classList.add('pending-sync');
+    const canModify = currentUser.role !== 'ssm' || r.owner_id === currentUser.id;
+    let actionHtml = canModify ? `<button class="icon-btn" onclick="editRecord('${r.id}')">Edit</button>` : '';
+    if(canModify && r.requirement_status === 'pending') actionHtml += `<button class="icon-btn ok" onclick="markFulfilled('${r.id}')">✓ Done</button>`;
+    else if(canModify && r.requirement_status === 'fulfilled') actionHtml += `<button class="icon-btn" onclick="markPendingAgain('${r.id}')">Reopen</button>`;
+    if(canModify) actionHtml += `<button class="icon-btn danger" onclick="deleteRecord('${r.id}')">Delete</button>`;
+
+    let rowHtml = `<td class="col-num">${r.serial}${r._pendingSync ? '<br><span class="sync-badge">SYNCING</span>' : ''}</td>` +
+      FIELD_ORDER.map(k => `<td>${cellForField(r,k)}</td>`).join('');
+    if(isPrivileged) rowHtml += `<td class="col-owner">${escapeHtml(ownerNameById(r.owner_id))}</td>`;
+    rowHtml += `<td><div class="row-actions">${actionHtml}</div></td>`;
+    tr.innerHTML = rowHtml;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById('recordCount').textContent = `${filtered.length} record${filtered.length===1?'':'s'}${filtered.length!==records.length ? ' (of '+records.length+')' : ''}`;
+  const total = filtered.reduce((s,r) => s + (r.amount_value||0), 0);
+  document.getElementById('totalAmount').textContent = 'Total: ' + formatAmount(total);
+}
+
+function renderSignatureStrip(){
+  document.getElementById('signatureStrip').innerHTML = `Generated By: ${escapeHtml(currentUser.full_name)}<br>Role: ${escapeHtml(currentUser.role)}<br>Printed: ${nowTimestamp()}`;
+}
+
+// ===================== PDF EXPORT =====================
+function exportPDF(){
+  if(records.length === 0){ showToast('No records to export.', true); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
+  const title = 'State Life Insurance Corporation — Policy Register';
+  const ts = nowTimestamp();
+  const isPrivileged = currentUser.role !== 'ssm';
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(14);
+  doc.text(title, 14, 14);
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
+  doc.text(`Printed: ${ts}    Total Records: ${records.length}    Viewing as: ${currentUser.full_name} (${currentUser.role})`, 14, 20);
+
+  const sorted = [...records].sort((a,b) => a.serial - b.serial);
+  let head = ['#', ...FIELD_ORDER.map(k => LABELS[k])];
+  if(isPrivileged) head.push('SSM');
+
+  const body = sorted.map(r => {
+    let row = [r.serial, ...FIELD_ORDER.map(k => {
+      if(k==='amount') return r.amount_raw ? formatAmount(r.amount_raw) : '';
+      if(k==='requirements'){
+        if(r.requirement_status==='pending') return '[PENDING] '+(r.requirements||'');
+        if(r.requirement_status==='fulfilled') return '[FULFILLED]';
+        return '';
+      }
+      if(k==='date') return r.date_display||'';
+      if(k==='phone') return r.phone_display||'';
+      if(k==='policy') return r.policy_display||'';
+      return r[k]||'';
+    })];
+    if(isPrivileged) row.push(ownerNameById(r.owner_id));
+    return row;
+  });
+
+  doc.autoTable({
+    startY: 26, head:[head], body,
+    styles:{fontSize:8, cellPadding:2},
+    headStyles:{fillColor:[15,45,34], textColor:[239,233,220], fontStyle:'bold'},
+    alternateRowStyles:{fillColor:[250,249,246]},
+    margin:{left:14, right:14, bottom:18},
+    didDrawPage: () => {
+      const pageHeight = doc.internal.pageSize.height;
+      doc.setFontSize(8); doc.setTextColor(120,120,120);
+      doc.text(`Generated By: ${currentUser.full_name}    Role: ${currentUser.role}    Printed: ${ts}`, 14, pageHeight - 8);
+    }
+  });
+  doc.save(`Policy_Register_${ts.replace(/[: ]/g,'_')}.pdf`);
+  showToast('PDF exported.');
+}
+
+// ===================== TOAST =====================
+function showToast(msg, isError){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+document.getElementById('entryForm').addEventListener('keydown', e => {
+  if(e.key === 'Enter' && e.target.tagName !== 'TEXTAREA'){ e.preventDefault(); submitRecord(); }
+});
+
+// ===================== INIT =====================
+updateConnUI();
+// try auto-resume session if one is cached and we're online (re-validate) or offline (trust cache)
+(async function tryAutoLogin(){
+  const cached = safeStorage.get(SESSION_KEY);
+  if(!cached) return;
+  const sess = JSON.parse(cached);
+  if(isOnline && supabaseReady){
+    const { data } = await supabase.auth.getSession();
+    if(data && data.session){
+      currentUser = sess.user;
+      enterApp(false);
+    }
+  } else if(!isOnline){
+    currentUser = sess.user;
+    enterApp(true);
+  }
+})();
+</script>
+</body>
+</html>
