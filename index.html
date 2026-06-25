@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" onerror="window.__supabaseLoadFailed = true;"></script>
 <style>
   :root{
     --ink:#1C1C1C; --ink-soft:#5B5955;
@@ -200,6 +200,9 @@
 <body>
 
 <!-- ===================== LOGIN SCREEN ===================== -->
+<div class="banner gold" id="libraryErrorBanner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:999; justify-content:center; padding:10px;">
+  <span>⚠️ <strong>Connection library failed to load.</strong> <span id="libraryErrorDetail"></span> Try reloading the page, or check your internet connection.</span>
+</div>
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
     <div class="login-logo">📋</div>
@@ -362,15 +365,58 @@
 
 <script>
 // ===================== SUPABASE CONFIG =====================
-// These two values are filled in once Shah provides them.
 const SUPABASE_URL = 'https://umoazkqjboywukhdxnmv.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_b8crr68rwf6jjQmvTyCtzA_ln4rSv5b';
 
 let supabase = null;
 let supabaseReady = false;
-if(SUPABASE_URL.indexOf('YOUR_SUPABASE') === -1){
-  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  supabaseReady = true;
+
+function showLibraryError(detail){
+  const banner = document.getElementById('libraryErrorBanner');
+  const detailEl = document.getElementById('libraryErrorDetail');
+  if(banner){
+    detailEl.textContent = detail;
+    banner.style.display = 'flex';
+  }
+}
+
+function initSupabaseClient(){
+  if(typeof window.supabase === 'undefined' || typeof window.supabase.createClient !== 'function'){
+    return false;
+  }
+  try{
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    supabaseReady = true;
+    return true;
+  }catch(e){
+    showLibraryError('Failed to initialize: ' + e.message);
+    return false;
+  }
+}
+
+// Try immediately (library may already be loaded by the time this script runs)
+if(!initSupabaseClient()){
+  // Not ready yet — retry for a few seconds in case the script is still downloading,
+  // then try a fallback CDN, then give up and show a visible, actionable error.
+  let attempts = 0;
+  const retryInterval = setInterval(() => {
+    attempts++;
+    if(initSupabaseClient()){
+      clearInterval(retryInterval);
+      console.info('Supabase client initialized after ' + attempts + ' retries.');
+    } else if(attempts === 6){
+      // ~3 seconds in, primary CDN likely failed — try fallback CDN
+      const fallback = document.createElement('script');
+      fallback.src = 'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+      fallback.onerror = () => showLibraryError('Both primary and backup connection libraries failed to download — this is likely a network/firewall issue blocking script CDNs.');
+      document.head.appendChild(fallback);
+    } else if(attempts >= 16){
+      clearInterval(retryInterval);
+      if(!supabaseReady){
+        showLibraryError('Gave up after 8 seconds. The page loaded, but the database connection library never became available.');
+      }
+    }
+  }, 500);
 }
 
 // ===================== STATE =====================
