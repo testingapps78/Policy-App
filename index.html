@@ -368,7 +368,7 @@
 const SUPABASE_URL = 'https://umoazkqjboywukhdxnmv.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_b8crr68rwf6jjQmvTyCtzA_ln4rSv5b';
 
-let supabase = null;
+let db = null;
 let supabaseReady = false;
 
 function showLibraryError(detail){
@@ -385,7 +385,7 @@ function initSupabaseClient(){
     return false;
   }
   try{
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     supabaseReady = true;
     return true;
   }catch(e){
@@ -524,7 +524,7 @@ document.getElementById('loginForm').addEventListener('submit', async e => {
       return;
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await db.auth.signInWithPassword({ email, password });
     if(error){
       errEl.textContent = 'Incorrect username or password.';
       errEl.classList.add('show');
@@ -532,7 +532,7 @@ document.getElementById('loginForm').addEventListener('submit', async e => {
       return;
     }
 
-    const { data: staffRow, error: staffErr } = await supabase.from('staff').select('*').eq('id', data.user.id).single();
+    const { data: staffRow, error: staffErr } = await db.from('staff').select('*').eq('id', data.user.id).single();
     if(staffErr || !staffRow){
       errEl.textContent = 'Your account exists but is not yet set up with a role. Contact the office clerk.';
       errEl.classList.add('show');
@@ -551,7 +551,7 @@ document.getElementById('loginForm').addEventListener('submit', async e => {
 });
 
 function logout(){
-  if(supabaseReady) supabase.auth.signOut();
+  if(supabaseReady) db.auth.signOut();
   safeStorage.remove(SESSION_KEY);
   currentUser = null;
   document.getElementById('loginScreen').style.display = 'flex';
@@ -585,7 +585,7 @@ async function enterApp(isOfflineLogin){
 // ===================== STAFF LIST (for manager/clerk owner dropdown + filter) =====================
 async function loadStaffList(){
   try{
-    const { data, error } = await supabase.from('staff').select('*').eq('role','ssm').order('full_name');
+    const { data, error } = await db.from('staff').select('*').eq('role','ssm').order('full_name');
     if(!error && data){
       staffList = data;
       const ownerSelect = document.getElementById('f_owner');
@@ -604,7 +604,7 @@ function ownerNameById(id){
 async function loadRecords(){
   if(isOnline && supabaseReady){
     try{
-      let query = supabase.from('policy_records').select('*').order('serial', {ascending:true});
+      let query = db.from('policy_records').select('*').order('serial', {ascending:true});
       const { data, error } = await query;
       if(error) throw error;
       records = data || [];
@@ -656,13 +656,13 @@ async function trySync(){
   for(const op of pendingQueue){
     try{
       if(op.type === 'insert'){
-        const { error } = await supabase.from('policy_records').insert(op.payload);
+        const { error } = await db.from('policy_records').insert(op.payload);
         if(error) throw error;
       } else if(op.type === 'update'){
-        const { error } = await supabase.from('policy_records').update(op.payload.fields).eq('id', op.payload.id);
+        const { error } = await db.from('policy_records').update(op.payload.fields).eq('id', op.payload.id);
         if(error) throw error;
       } else if(op.type === 'delete'){
-        const { error } = await supabase.from('policy_records').delete().eq('id', op.payload.id);
+        const { error } = await db.from('policy_records').delete().eq('id', op.payload.id);
         if(error) throw error;
       }
     }catch(e){
@@ -756,7 +756,7 @@ async function submitRecord(){
     const idx = records.findIndex(r => r.id === editingId);
     records[idx] = Object.assign({}, records[idx], fields, {_pendingSync:true});
     if(isOnline && supabaseReady){
-      const { error } = await supabase.from('policy_records').update(fields).eq('id', editingId);
+      const { error } = await db.from('policy_records').update(fields).eq('id', editingId);
       if(error){ queueOperation('update', {id: editingId, fields}); }
       else { records[idx]._pendingSync = false; }
     } else {
@@ -768,7 +768,7 @@ async function submitRecord(){
     const newRec = Object.assign({id}, fields, {_pendingSync:true});
     records.push(newRec);
     if(isOnline && supabaseReady){
-      const { data, error } = await supabase.from('policy_records').insert(fields).select().single();
+      const { data, error } = await db.from('policy_records').insert(fields).select().single();
       if(error){ queueOperation('insert', fields); }
       else {
         const idx = records.findIndex(r => r.id === id);
@@ -832,7 +832,7 @@ async function deleteRecord(id){
   renderTable();
 
   if(isOnline && supabaseReady && !String(id).startsWith('tmp-')){
-    const { error } = await supabase.from('policy_records').delete().eq('id', id);
+    const { error } = await db.from('policy_records').delete().eq('id', id);
     if(error) queueOperation('delete', {id});
   } else if(!String(id).startsWith('tmp-')){
     queueOperation('delete', {id});
@@ -850,7 +850,7 @@ async function updateRequirementStatus(id, status){
   renderTable();
   const fields = {requirement_status: status, last_edited_by: currentUser.id};
   if(isOnline && supabaseReady){
-    const { error } = await supabase.from('policy_records').update(fields).eq('id', id);
+    const { error } = await db.from('policy_records').update(fields).eq('id', id);
     if(error) queueOperation('update', {id, fields});
   } else {
     queueOperation('update', {id, fields});
@@ -1005,7 +1005,7 @@ updateConnUI();
   if(!cached) return;
   const sess = JSON.parse(cached);
   if(isOnline && supabaseReady){
-    const { data } = await supabase.auth.getSession();
+    const { data } = await db.auth.getSession();
     if(data && data.session){
       currentUser = sess.user;
       enterApp(false);
