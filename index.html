@@ -270,6 +270,14 @@
     </div>
     <div class="masthead-right">
       <div class="conn-status" id="connStatus"><span class="conn-dot online" id="connDot"></span><span id="connText">Online</span></div>
+      <div class="online-users-chip" id="onlineUsersChip" onclick="toggleOnlineUsersPanel()" style="cursor:pointer;position:relative;">
+        <span style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12px;background:rgba(0,160,227,0.15);border:1px solid var(--blue);padding:6px 12px;border-radius:20px;">
+          <span style="width:7px;height:7px;border-radius:50%;background:#1E8A5F;display:inline-block;"></span>
+          <span id="onlineCountText">0 online</span>
+        </span>
+        <div id="onlineUsersPanel" style="display:none;position:absolute;top:36px;right:0;background:#fff;border:1px solid var(--rule);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.18);min-width:200px;z-index:50;padding:8px 0;">
+        </div>
+      </div>
       <div class="user-chip">
         <span id="userNameChip">—</span>
         <span class="role-tag" id="userRoleChip">—</span>
@@ -404,6 +412,16 @@
   </div>
 </div>
 
+<div class="modal-overlay hidden" id="historyModal" style="position:fixed;inset:0;background:rgba(10,30,45,0.55);display:none;align-items:center;justify-content:center;z-index:200;padding:20px;">
+  <div style="background:#fff;border-radius:8px;max-width:560px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--rule);display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="font-family:var(--serif);font-size:17px;font-weight:600;color:var(--blue-deep);margin:0;">Change History</h2>
+      <button onclick="document.getElementById('historyModal').style.display='none'" style="border:none;background:transparent;font-size:20px;cursor:pointer;color:var(--ink-soft);">✕</button>
+    </div>
+    <div id="historyModalBody" style="padding:18px 22px;font-size:13px;"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -466,7 +484,21 @@ if(!initSupabaseClient()){
 let currentUser = null; // {id, role, full_name, ssm_code}
 let records = [];
 let editingId = null;
-let staffList = []; // for manager/clerk owner dropdown
+let staffList = []; // for manager/clerk owner dropdown (SSMs only)
+let allStaffDirectory = {}; // id -> full_name, for everyone (used to display "last edited by" names)
+
+async function loadAllStaffDirectory(){
+  try{
+    const { data, error } = await db.from('staff').select('id, full_name, role');
+    if(!error && data){
+      allStaffDirectory = {};
+      data.forEach(s => { allStaffDirectory[s.id] = s.full_name; });
+    }
+  }catch(e){ console.warn('staff directory load failed', e); }
+}
+function staffNameById(id){
+  return allStaffDirectory[id] || (id === currentUser?.id ? currentUser.full_name : 'Unknown');
+}
 let isOnline = navigator.onLine;
 let pendingQueue = []; // operations queued while offline: {type, payload}
 
@@ -608,6 +640,7 @@ document.getElementById('loginForm').addEventListener('submit', async e => {
 });
 
 function logout(){
+  stopPresenceTracking();
   if(supabaseReady) db.auth.signOut();
   safeStorage.remove(SESSION_KEY);
   currentUser = null;
@@ -633,6 +666,9 @@ async function enterApp(isOfflineLogin){
   if(isPrivileged && isOnline && supabaseReady){
     await loadStaffList();
   }
+  if(isOnline && supabaseReady){
+    await loadAllStaffDirectory();
+  }
 
   await loadRecords();
   renderTable();
@@ -642,6 +678,10 @@ async function enterApp(isOfflineLogin){
   // an earlier failure (e.g. a temporary permissions issue) rather than just being offline.
   if(isOnline && supabaseReady && pendingQueue.length > 0){
     await trySync();
+  }
+
+  if(isOnline && supabaseReady){
+    startPresenceTracking();
   }
 }
 
@@ -793,6 +833,19 @@ function validateForm(){
   return ok;
 }
 
+async function logHistory(recordId, changeType, oldValues, newValues){
+  if(!isOnline || !supabaseReady) return; // history logging is best-effort, not queued offline (keeps it simple and non-blocking)
+  try{
+    await db.from('record_history').insert({
+      record_id: recordId,
+      changed_by: currentUser.id,
+      change_type: changeType,
+      old_values: oldValues || null,
+      new_values: newValues || null,
+    });
+  }catch(e){ console.warn('History log failed (non-critical):', e); }
+}
+
 async function submitRecord(){
   if(!validateForm()){ showToast('Please fix the highlighted fields.', true); return; }
 
@@ -833,11 +886,15 @@ async function submitRecord(){
 
   if(editingId){
     const idx = records.findIndex(r => r.id === editingId);
+    const oldSnapshot = Object.assign({}, records[idx]);
     records[idx] = Object.assign({}, records[idx], fields, {_pendingSync:true});
     if(isOnline && supabaseReady){
       const { error } = await db.from('policy_records').update(fields).eq('id', editingId);
       if(error){ queueOperation('update', {id: editingId, fields}); }
-      else { records[idx]._pendingSync = false; }
+      else {
+        records[idx]._pendingSync = false;
+        await logHistory(editingId, 'update', oldSnapshot, fields);
+      }
     } else {
       queueOperation('update', {id: editingId, fields});
     }
@@ -855,6 +912,7 @@ async function submitRecord(){
       else {
         const idx = records.findIndex(r => r.id === id);
         records[idx] = data;
+        await logHistory(data.id, 'insert', null, fields);
       }
     } else {
       queueOperation('insert', fields);
@@ -920,6 +978,7 @@ async function deleteRecord(id){
   if(!canDelete){ showToast("You can only delete your own records.", true); return; }
   if(!confirm('Delete this record? This cannot be undone.')) return;
 
+  const snapshot = Object.assign({}, r);
   records = records.filter(x => x.id !== id);
   saveRecordsToCache();
   renderTable();
@@ -927,6 +986,7 @@ async function deleteRecord(id){
   if(isOnline && supabaseReady && !String(id).startsWith('tmp-')){
     const { error } = await db.from('policy_records').delete().eq('id', id);
     if(error) queueOperation('delete', {id});
+    else await logHistory(id, 'delete', snapshot, null);
   } else if(!String(id).startsWith('tmp-')){
     queueOperation('delete', {id});
   }
@@ -938,6 +998,7 @@ async function markPendingAgain(id){ await updateRequirementStatus(id, 'pending'
 async function updateRequirementStatus(id, status){
   const r = records.find(x => x.id === id);
   if(!r) return;
+  const oldStatus = r.requirement_status;
   r.requirement_status = status;
   saveRecordsToCache();
   renderTable();
@@ -945,6 +1006,7 @@ async function updateRequirementStatus(id, status){
   if(isOnline && supabaseReady){
     const { error } = await db.from('policy_records').update(fields).eq('id', id);
     if(error) queueOperation('update', {id, fields});
+    else await logHistory(id, 'update', {requirement_status: oldStatus}, {requirement_status: status});
   } else {
     queueOperation('update', {id, fields});
   }
@@ -1010,6 +1072,7 @@ function renderTable(){
 
   let cols = ['#', ...FIELD_ORDER.map(k => LABELS[k])];
   if(isPrivileged) cols.push('SSM');
+  cols.push('Last Edited');
   headRow.innerHTML = cols.map(c => `<th>${c}</th>`).join('') + '<th></th>';
 
   let filtered = getFilteredRecords();
@@ -1026,11 +1089,15 @@ function renderTable(){
     let actionHtml = canModify ? `<button class="icon-btn" onclick="editRecord('${r.id}')">Edit</button>` : '';
     if(canModify && r.requirement_status === 'pending') actionHtml += `<button class="icon-btn ok" onclick="markFulfilled('${r.id}')">✓ Done</button>`;
     else if(canModify && r.requirement_status === 'fulfilled') actionHtml += `<button class="icon-btn" onclick="markPendingAgain('${r.id}')">Reopen</button>`;
+    actionHtml += `<button class="icon-btn" onclick="openHistoryModal('${r.id}')">History</button>`;
     if(canModify) actionHtml += `<button class="icon-btn danger" onclick="deleteRecord('${r.id}')">Delete</button>`;
 
     let rowHtml = `<td class="col-num">${r.serial}${r._pendingSync ? '<br><span class="sync-badge">SYNCING</span>' : ''}</td>` +
       FIELD_ORDER.map(k => `<td>${cellForField(r,k)}</td>`).join('');
     if(isPrivileged) rowHtml += `<td class="col-owner">${escapeHtml(ownerNameById(r.owner_id))}</td>`;
+    const lastEditedName = r.last_edited_by ? staffNameById(r.last_edited_by) : (r.owner_id ? staffNameById(r.owner_id) : '—');
+    const lastEditedTime = r.updated_at ? new Date(r.updated_at).toLocaleDateString('en-GB') : '';
+    rowHtml += `<td class="col-owner">${escapeHtml(lastEditedName)}${lastEditedTime ? '<br><span style="font-size:10.5px;color:var(--ink-soft)">'+lastEditedTime+'</span>' : ''}</td>`;
     rowHtml += `<td><div class="row-actions">${actionHtml}</div></td>`;
     tr.innerHTML = rowHtml;
     tbody.appendChild(tr);
@@ -1039,6 +1106,138 @@ function renderTable(){
   document.getElementById('recordCount').textContent = `${filtered.length} record${filtered.length===1?'':'s'}${filtered.length!==records.length ? ' (of '+records.length+')' : ''}`;
   const total = filtered.reduce((s,r) => s + (r.amount_value||0), 0);
   document.getElementById('totalAmount').textContent = 'Total: ' + formatAmount(total);
+}
+
+// ===================== REAL-TIME PRESENCE (who's online) =====================
+let presenceChannel = null;
+let onlineUsersState = {}; // userId -> {name, role}
+
+function startPresenceTracking(){
+  if(presenceChannel) return; // already tracking
+  presenceChannel = db.channel('area9219-presence', {
+    config: { presence: { key: currentUser.id } }
+  });
+
+  presenceChannel.on('presence', {event:'sync'}, () => {
+    const state = presenceChannel.presenceState();
+    onlineUsersState = {};
+    Object.keys(state).forEach(key => {
+      const presences = state[key];
+      if(presences && presences.length > 0){
+        onlineUsersState[key] = presences[0];
+      }
+    });
+    renderOnlineUsers();
+  });
+
+  presenceChannel.subscribe(async (status) => {
+    if(status === 'SUBSCRIBED'){
+      await presenceChannel.track({
+        name: currentUser.full_name,
+        role: currentUser.role,
+        online_at: new Date().toISOString(),
+      });
+    }
+  });
+}
+
+function stopPresenceTracking(){
+  if(presenceChannel){
+    db.removeChannel(presenceChannel);
+    presenceChannel = null;
+  }
+  onlineUsersState = {};
+}
+
+function renderOnlineUsers(){
+  const countEl = document.getElementById('onlineCountText');
+  const panelEl = document.getElementById('onlineUsersPanel');
+  if(!countEl) return;
+  const users = Object.values(onlineUsersState);
+  countEl.textContent = `${users.length} online`;
+  if(users.length === 0){
+    panelEl.innerHTML = '<div style="padding:10px 16px;color:var(--ink-soft);font-size:12.5px;">No one else online right now</div>';
+    return;
+  }
+  panelEl.innerHTML = users
+    .sort((a,b) => a.name.localeCompare(b.name))
+    .map(u => `
+      <div style="padding:8px 16px;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink);">
+        <span style="width:7px;height:7px;border-radius:50%;background:#1E8A5F;flex-shrink:0;"></span>
+        <span style="color:var(--ink);">${escapeHtml(u.name)}</span>
+        <span style="font-size:10px;text-transform:uppercase;color:var(--ink-soft);margin-left:auto;">${escapeHtml(u.role)}</span>
+      </div>
+    `).join('');
+}
+
+function toggleOnlineUsersPanel(){
+  const panel = document.getElementById('onlineUsersPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+// close the panel if clicking elsewhere on the page
+document.addEventListener('click', (e) => {
+  const chip = document.getElementById('onlineUsersChip');
+  const panel = document.getElementById('onlineUsersPanel');
+  if(chip && panel && !chip.contains(e.target)){
+    panel.style.display = 'none';
+  }
+});
+
+// ===================== CHANGE HISTORY MODAL =====================
+const HISTORY_FIELD_LABELS = {
+  name:'Name', address:'Address', policy_display:'Policy No', date_display:'Date',
+  phone_display:'Phone No', amount_raw:'Amount', requirement_status:'Requirement Status', requirements:'Requirements',
+};
+
+function describeChange(entry){
+  if(entry.change_type === 'insert') return 'Record created';
+  if(entry.change_type === 'delete') return 'Record deleted';
+  // update: diff old vs new for the fields people actually care about
+  const old = entry.old_values || {};
+  const nw = entry.new_values || {};
+  const changedFields = Object.keys(HISTORY_FIELD_LABELS).filter(k => {
+    const ov = old[k] ?? '';
+    const nv = nw[k] ?? '';
+    return String(ov) !== String(nv) && (ov !== '' || nv !== '');
+  });
+  if(changedFields.length === 0) return 'Record updated (no visible field changes)';
+  return changedFields.map(k => {
+    const label = HISTORY_FIELD_LABELS[k];
+    const ov = old[k] ?? '—';
+    const nv = nw[k] ?? '—';
+    return `<strong>${label}</strong>: ${escapeHtml(String(ov))} → ${escapeHtml(String(nv))}`;
+  }).join('<br>');
+}
+
+async function openHistoryModal(recordId){
+  const modal = document.getElementById('historyModal');
+  const body = document.getElementById('historyModalBody');
+  body.innerHTML = '<p style="color:var(--ink-soft);">Loading history...</p>';
+  modal.style.display = 'flex';
+
+  if(!isOnline || !supabaseReady){
+    body.innerHTML = '<p style="color:var(--ink-soft);">History requires an internet connection.</p>';
+    return;
+  }
+
+  try{
+    const { data, error } = await db.from('record_history').select('*').eq('record_id', recordId).order('changed_at', {ascending:false});
+    if(error) throw error;
+    if(!data || data.length === 0){
+      body.innerHTML = '<p style="color:var(--ink-soft);">No history recorded for this record yet (it may have been entered before history tracking was added).</p>';
+      return;
+    }
+    body.innerHTML = data.map(entry => `
+      <div style="padding:10px 0;border-bottom:1px solid var(--rule);">
+        <div style="font-size:11.5px;color:var(--ink-soft);font-family:var(--mono);margin-bottom:4px;">
+          ${new Date(entry.changed_at).toLocaleString('en-GB')} — <strong>${escapeHtml(staffNameById(entry.changed_by))}</strong>
+        </div>
+        <div style="font-size:12.5px;line-height:1.6;">${describeChange(entry)}</div>
+      </div>
+    `).join('');
+  }catch(e){
+    body.innerHTML = '<p style="color:var(--error);">Could not load history: ' + escapeHtml(e.message) + '</p>';
+  }
 }
 
 function renderSignatureStrip(){
