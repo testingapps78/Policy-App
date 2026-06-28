@@ -1064,6 +1064,21 @@ function populateYearFilter(){
   if(years.includes(parseInt(currentVal))) yearSelect.value = currentVal;
 }
 
+// For SSMs, show a clean personal 1,2,3... numbering instead of the global serial
+// (which has gaps from other SSMs' records). Manager/Clerk still see the true global
+// serial, since they need it to track everything across the whole office.
+// This is purely a display number — the underlying `serial` field never changes.
+function getDisplayNumberMap(){
+  const map = {};
+  if(currentUser.role === 'ssm'){
+    const own = records.filter(r => r.owner_id === currentUser.id).sort((a,b) => a.serial - b.serial);
+    own.forEach((r, idx) => { map[r.id] = idx + 1; });
+  } else {
+    records.forEach(r => { map[r.id] = r.serial; });
+  }
+  return map;
+}
+
 function renderTable(){
   populateYearFilter();
   const tbody = document.getElementById('tableBody');
@@ -1076,6 +1091,7 @@ function renderTable(){
   headRow.innerHTML = cols.map(c => `<th>${c}</th>`).join('') + '<th></th>';
 
   let filtered = getFilteredRecords();
+  const displayNumbers = getDisplayNumberMap();
 
   tbody.innerHTML = '';
   document.getElementById('emptyState').style.display = filtered.length ? 'none' : 'block';
@@ -1092,7 +1108,7 @@ function renderTable(){
     actionHtml += `<button class="icon-btn" onclick="openHistoryModal('${r.id}')">History</button>`;
     if(canModify) actionHtml += `<button class="icon-btn danger" onclick="deleteRecord('${r.id}')">Delete</button>`;
 
-    let rowHtml = `<td class="col-num">${r.serial}${r._pendingSync ? '<br><span class="sync-badge">SYNCING</span>' : ''}</td>` +
+    let rowHtml = `<td class="col-num">${displayNumbers[r.id]}${r._pendingSync ? '<br><span class="sync-badge">SYNCING</span>' : ''}</td>` +
       FIELD_ORDER.map(k => `<td>${cellForField(r,k)}</td>`).join('');
     if(isPrivileged) rowHtml += `<td class="col-owner">${escapeHtml(ownerNameById(r.owner_id))}</td>`;
     const lastEditedName = r.last_edited_by ? staffNameById(r.last_edited_by) : (r.owner_id ? staffNameById(r.owner_id) : '—');
@@ -1246,9 +1262,9 @@ function renderSignatureStrip(){
 
 // ===================== PDF EXPORT =====================
 // ===================== EXCEL EXPORT (BACKUP) =====================
-function recordToRow(r){
+function recordToRow(r, displayNum){
   return {
-    '#': r.serial,
+    '#': displayNum !== undefined ? displayNum : r.serial,
     [LABELS.name]: r.name || '',
     [LABELS.address]: r.address || '',
     [LABELS.policy]: r.policy_display || '',
@@ -1285,7 +1301,9 @@ async function exportExcel(){
   const wb = XLSX.utils.book_new();
 
   if(isPrivileged){
-    // One sheet per SSM, named by their full name (Excel sheet names max 31 chars, no special chars)
+    // One sheet per SSM, named by their full name (Excel sheet names max 31 chars, no special chars).
+    // Each sheet numbers that SSM's records 1,2,3... based on ALL of their records (not just the
+    // currently-filtered subset), so the numbering matches exactly what that SSM sees in their own app.
     const byOwner = {};
     filtered.forEach(r => {
       const ownerName = ownerNameById(r.owner_id) || 'Unknown';
@@ -1298,13 +1316,22 @@ async function exportExcel(){
       let unique = sheetName, n = 1;
       while(usedNames.has(unique)){ unique = (sheetName.slice(0, 28) + '_' + (++n)); }
       usedNames.add(unique);
-      const rows = byOwner[ownerName].map(recordToRow);
+
+      // Build this owner's full personal numbering from ALL their records (same rule as getDisplayNumberMap,
+      // but for an arbitrary owner since the current user is Manager/Clerk, not this SSM themselves).
+      const ownerId = byOwner[ownerName][0].owner_id;
+      const allOwnerRecords = records.filter(r => r.owner_id === ownerId).sort((a,b) => a.serial - b.serial);
+      const personalNumMap = {};
+      allOwnerRecords.forEach((r, idx) => { personalNumMap[r.id] = idx + 1; });
+
+      const rows = byOwner[ownerName].map(r => recordToRow(r, personalNumMap[r.id]));
       const ws = XLSX.utils.json_to_sheet(rows);
       ws['!cols'] = autoSizeColumns(rows);
       XLSX.utils.book_append_sheet(wb, ws, unique);
     });
   } else {
-    const rows = filtered.map(recordToRow);
+    const displayNumbers = getDisplayNumberMap();
+    const rows = filtered.map(r => recordToRow(r, displayNumbers[r.id]));
     const ws = XLSX.utils.json_to_sheet(rows);
     ws['!cols'] = autoSizeColumns(rows);
     XLSX.utils.book_append_sheet(wb, ws, 'My Records');
@@ -1337,8 +1364,14 @@ async function exportPDF(){
   let head = ['#', ...FIELD_ORDER.map(k => LABELS[k])];
   if(isPrivileged) head.push('SSM');
 
+  // SSMs see their own personal 1,2,3... numbering (matching the live table and Excel export).
+  // Manager/Clerk keep the true global serial number, since their PDF mixes everyone together
+  // in one table and the global number is what lets them track records across the whole office.
+  const ssmDisplayNumbers = !isPrivileged ? getDisplayNumberMap() : null;
+
   const body = sorted.map(r => {
-    let row = [r.serial, ...FIELD_ORDER.map(k => {
+    const displayNum = isPrivileged ? r.serial : ssmDisplayNumbers[r.id];
+    let row = [displayNum, ...FIELD_ORDER.map(k => {
       if(k==='amount') return r.amount_raw ? formatAmount(r.amount_raw) : '';
       if(k==='requirements'){
         if(r.requirement_status==='pending') return '[PENDING] '+(r.requirements||'');
