@@ -163,7 +163,7 @@
   .field .preview{font-family:var(--mono);font-size:12px;color:var(--blue);margin-top:4px;font-weight:600;min-height:14px;}
 
   .toggle-row{display:flex;align-items:center;gap:10px;background:var(--pending-bg);border:1px solid #EBC896;border-radius:var(--radius);padding:9px 11px;margin-bottom:12px;}
-  .toggle-row label{font-size:12px;font-weight:600;color:#7A4A12;margin:0;flex:1;cursor:pointer;}
+  .toggle-row > label:first-child{font-size:12px;font-weight:600;color:#7A4A12;margin:0;flex:1;cursor:pointer;}
   .switch{position:relative;width:36px;height:20px;flex-shrink:0;}
   .switch input{opacity:0;width:0;height:0;}
   .switch-track{position:absolute;cursor:pointer;inset:0;background:#C9C2B0;border-radius:20px;transition:.15s;}
@@ -637,6 +637,12 @@ async function enterApp(isOfflineLogin){
   await loadRecords();
   renderTable();
   updateConnUI();
+
+  // Retry any pending offline changes right away, in case they were stuck from
+  // an earlier failure (e.g. a temporary permissions issue) rather than just being offline.
+  if(isOnline && supabaseReady && pendingQueue.length > 0){
+    await trySync();
+  }
 }
 
 // ===================== STAFF LIST (for manager/clerk owner dropdown + filter) =====================
@@ -758,6 +764,15 @@ function updateConnUI(){
 }
 window.addEventListener('online', () => { isOnline = true; updateConnUI(); trySync(); });
 window.addEventListener('offline', () => { isOnline = false; updateConnUI(); });
+
+// Also retry periodically in the background, in case a sync failed for a reason
+// other than being offline (e.g. a temporary server issue) and the device never
+// actually went through an offline->online transition to trigger a retry.
+setInterval(() => {
+  if(currentUser && isOnline && supabaseReady && pendingQueue.length > 0){
+    trySync();
+  }
+}, 60000);
 
 // ===================== RECORD CRUD =====================
 function nextSerial(){ return records.length === 0 ? 1 : Math.max(...records.map(r => r.serial || 0)) + 1; }
@@ -1055,7 +1070,15 @@ function autoSizeColumns(rows){
   });
 }
 
-function exportExcel(){
+async function exportExcel(){
+  // Refresh from the server first (if online) so the export always reflects
+  // the true current state, not a possibly-stale local snapshot.
+  if(isOnline && supabaseReady){
+    showToast('Refreshing data before export...');
+    await loadRecords();
+    renderTable();
+  }
+
   const filtered = getFilteredRecords();
   if(filtered.length === 0){ showToast('No records to export.', true); return; }
 
@@ -1093,7 +1116,12 @@ function exportExcel(){
   showToast('Excel backup exported. Save this somewhere safe (Google Drive, USB, etc.)');
 }
 
-function exportPDF(){
+async function exportPDF(){
+  if(isOnline && supabaseReady){
+    showToast('Refreshing data before export...');
+    await loadRecords();
+    renderTable();
+  }
   if(records.length === 0){ showToast('No records to export.', true); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
